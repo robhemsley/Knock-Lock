@@ -3,21 +3,29 @@
 #include <CapSense.h>
 #include <Servo.h> 
 
+
+
 int CAP_SWITCH_SEND = 4;            //Pin number for Cap Sense Send signal
 int CAP_SWITCH_RECEIVE = 2;         //Pin number for Cap Sense Receive signal
 int SERVO_PIN = 14;                 //Pin number Servo Logic is attached to
 
-int machineState = 0;
+int machineState = 5;
 int buttonState = 0;
 int lastState = -1;
-int last_value = 0;
+long last_value = 0;
 int lock_state = 0;
 
 int hand_state = 0;
 
-CapSense cs_switch = CapSense(CAP_SWITCH_SEND, CAP_SWITCH_RECEIVE); 
-Servo door_servo; 
+long count_total = 0;
+long counter_total = 0;
+long counter_highest = 0;
 
+long highest = 0;
+long range = 0;
+unsigned long door_reset = 0;
+
+//Knock Counters
 int count = 0;
 int count_read = 0;
 
@@ -27,30 +35,58 @@ unsigned long onStartPress = 0;
 unsigned long offStartPress = 0;
 int knock_array[10];
 
+CapSense cs_switch = CapSense(CAP_SWITCH_SEND, CAP_SWITCH_RECEIVE); 
+Servo door_servo;
 
 void setup(){
   count_read = 0;
   count = 0;
+  
   Serial.begin(9600);
-
-  cs_switch.set_CS_Timeout_Millis(1000);
-  clearMem();
-  readMem();  
+  cs_switch.set_CS_Timeout_Millis(2000);
+  
+  readMem();
+  change_lock(0);
+  change_lock(1);
 }
 
 void get_hand_state(){
-  int value = cs_switch.capSense(30);
-  if((value - last_value) > 5000 && hand_state == 0){
-    hand_state = 1;
-    buttonState = HIGH;
-  }
-  if((last_value - value) > 5000 && hand_state == 1){
-    hand_state = 0;
-    buttonState = LOW;
+  long value = (last_value+cs_switch.capSense(30))/2;
+
+  if(value > highest){
+    highest = value;
+    range = (highest-counter_total);
   }
   
-if (lastState == -1){ lastState = buttonState; }
+  if(machineState == 5){
+    get_baseline(value);
+  }else{
+    if(value > (counter_total*3) && hand_state == 0){
+      hand_state = 1;
+      buttonState = HIGH;
+      //Serial.println("HIGH");
+    }else if(value < counter_total+(counter_highest/2)){
+      door_reset = millis();
+      if(hand_state == 1){
+        hand_state = 0;
+        buttonState = LOW;
+        //Serial.println("LOW");
+      }
+    }
+    
+    if(millis()-door_reset > 2000 && value < (highest-(range/1.5)) && machineState == 0){
+      Serial.println("RESET ME"); 
+      reset();
+    }
+  }
+  
+  if (lastState == -1){ lastState = buttonState; }
   last_value = value;
+
+  if(offTime > 30000 && machineState == 0){
+    Serial.println("CATS");
+    reset();
+  }
 }
 
 void loop(){
@@ -70,8 +106,8 @@ void loop(){
     if (buttonState != lastState){
       if (buttonState == HIGH){
         if(offTime > 0){
-          int val1 = knock_array[count_read]+100;
-          int val2 = knock_array[count_read]-100;
+          int val1 = knock_array[count_read]+200;
+          int val2 = knock_array[count_read]-200;
           if (offTime < val1 && offTime > val2){
             count_read += 1;
             if(knock_array[count_read] <= 0){
@@ -91,7 +127,7 @@ void loop(){
       }
     }  
   }
-   
+  
   lastState = buttonState;
   calTime();  
   checkTimeouts();
@@ -101,15 +137,23 @@ void checkTimeouts(){
   if (onTime > 5000 && machineState == 0 && buttonState == HIGH){
     count = 0;
     clearMem();
+    readMem();
+
     machineState = 1;
+    change_lock(0);
+    change_lock(1);
     Serial.println("Record");
   }
   
   if (offTime > 5000 && machineState == 1 && buttonState == LOW){
     count = 0;
     count_read = 0;
+    clearMem();
     saveMem();
+    readMem();
     machineState = 0;
+    change_lock(0);
+    change_lock(1);
     Serial.println("Finished Record");
   }
   
@@ -140,8 +184,8 @@ void calTime(){
 }
 
 void readMem(){
-  Serial.println("Start");
   for (int i = 0; i< (sizeof(knock_array)/sizeof(int)); i++){
+      knock_array[i] = 0;
       knock_array[i] = EEPROMReadInt(i);
       Serial.println((int) knock_array[i]);
   }
@@ -217,6 +261,29 @@ void change_lock(int state){
       lock_state = 1;
       EEPROM.write(0, 1);
     }
+    door_reset = millis();
   }
+}
+
+void reset(){
+  offStartPress = millis();
+  onStartPress = millis();
+  machineState = 5;
+  counter_total = 0;
+  counter_highest = 0;
+  count_total = 0;
+  highest = 0;
+}
+
+void get_baseline(long value){
+  counter_total += value;
+  count_total += 1;
+  if(value > counter_highest){
+   counter_highest = value; 
+  }
+  if(count_total == 100){
+    machineState = 0; 
+    counter_total = (counter_total/101);
+  } 
 }
 
