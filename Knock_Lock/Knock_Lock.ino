@@ -1,31 +1,37 @@
+/*
+Capacitive Knock Lock
+
+Sketch provides a knock based interface for unlocking doors. Detection is capacitvely based 
+and so is likely to need fine tuning for each door.
+
+Created: July 3, 2012 by Rob Hemsley (http://www.robhemsley.co.uk)
+*/
+
 //Library Imports
 #include <EEPROM.h>
 #include <CapSense.h>
 #include <Servo.h> 
 
-
-
-int CAP_SWITCH_SEND = 4;            //Pin number for Cap Sense Send signal
-int CAP_SWITCH_RECEIVE = 2;         //Pin number for Cap Sense Receive signal
-int SERVO_PIN = 14;                 //Pin number Servo Logic is attached to
+//START USER EDIT
+const int CAP_SWITCH_SEND = 4;            //Pin number for Cap Sense Send signal
+const int CAP_SWITCH_RECEIVE = 2;         //Pin number for Cap Sense Receive signal
+const int SERVO_PIN = 14;                 //Pin number Servo Logic is attached to
+const boolean USER_RECORD = true;         //Indicates if the user can record new patterns
+//END USER EDIT
 
 int machineState = 5;
 int buttonState = 0;
 int lastState = -1;
-long last_value = 0;
-int lock_state = 0;
+int lockState = 0;
+int handState = 0;
 
-int hand_state = 0;
-
-long count_total = 0;
-long counter_total = 0;
-long counter_highest = 0;
+long lastValue = 0;
+long countTotal = 0;
+long counterTotal = 0;
+long counterHighest = 0;
 
 long highest = 0;
 long range = 0;
-unsigned long door_reset = 0;
-
-//Knock Counters
 int count = 0;
 int count_read = 0;
 
@@ -33,63 +39,75 @@ int onTime = 0;
 int offTime = 0;
 unsigned long onStartPress = 0;
 unsigned long offStartPress = 0;
+unsigned long door_reset = 0;
 int knock_array[10];
 
 CapSense cs_switch = CapSense(CAP_SWITCH_SEND, CAP_SWITCH_RECEIVE); 
 Servo door_servo;
 
 void setup(){
+  /*  setup - Function
+   *    Setup method for script which creates and initilises the serial comm etc.
+   */
   count_read = 0;
   count = 0;
   
   Serial.begin(9600);
+  //Setup capacitive sensing
   cs_switch.set_CS_Timeout_Millis(2000);
+  cs_switch.set_CS_AutocaL_Millis(0xFFFFFFFF); 
   
+  //Read stored pattern delays
   readMem();
   change_lock(0);
   change_lock(1);
 }
 
 void get_hand_state(){
-  long value = (last_value+cs_switch.capSense(30))/2;
+  /* get_hand_state - Function
+  *    Reads the current capacitive sensor value
+  *
+  */
+  long value = (lastValue+cs_switch.capSense(30))/2;
 
   if(value > highest){
     highest = value;
-    range = (highest-counter_total);
+    range = (highest-counterTotal);
   }
   
   if(machineState == 5){
     get_baseline(value);
   }else{
-    if(value > (counter_total*3) && hand_state == 0){
-      hand_state = 1;
+    if(value > (counterTotal+counterHighest) && handState == 0){
+      handState = 1;
       buttonState = HIGH;
-      //Serial.println("HIGH");
-    }else if(value < counter_total+(counter_highest/2)){
+      Serial.println("HIGH");
+    }else if(value < counterTotal+(counterHighest/2)){
       door_reset = millis();
-      if(hand_state == 1){
-        hand_state = 0;
+      if(handState == 1){
+        handState = 0;
         buttonState = LOW;
-        //Serial.println("LOW");
+        Serial.println("LOW");
       }
     }
     
-    if(millis()-door_reset > 2000 && value < (highest-(range/1.5)) && machineState == 0){
-      Serial.println("RESET ME"); 
+    if((millis()-door_reset) > 5000 && value < (highest-(range/1.5)) && machineState == 0){
+      reset();
+    }else if(offTime > 30000 && machineState == 0){
+      reset();
+    }else if(onTime > 30000 && machineState == 0){
       reset();
     }
   }
   
   if (lastState == -1){ lastState = buttonState; }
-  last_value = value;
-
-  if(offTime > 30000 && machineState == 0){
-    Serial.println("CATS");
-    reset();
-  }
+  lastValue = value;
 }
 
 void loop(){
+  /*  loop - Function
+   *    Main execution loop for code
+   */  
   get_hand_state();
   
   if (machineState == 1){
@@ -106,6 +124,7 @@ void loop(){
     if (buttonState != lastState){
       if (buttonState == HIGH){
         if(offTime > 0){
+          //Knock tollerance (200 ms)
           int val1 = knock_array[count_read]+200;
           int val2 = knock_array[count_read]-200;
           if (offTime < val1 && offTime > val2){
@@ -134,27 +153,32 @@ void loop(){
 }
 
 void checkTimeouts(){
-  if (onTime > 5000 && machineState == 0 && buttonState == HIGH){
-    count = 0;
-    clearMem();
-    readMem();
-
-    machineState = 1;
-    change_lock(0);
-    change_lock(1);
-    Serial.println("Record");
-  }
+  /* checkTimeouts - Function
+  *    Checks to see if user is recording new pattern.
+  */
+  if (USER_RECORD){
+    if (onTime > 10000 && machineState == 0 && buttonState == HIGH){
+      count = 0;
+      clearMem();
+      readMem();
   
-  if (offTime > 5000 && machineState == 1 && buttonState == LOW){
-    count = 0;
-    count_read = 0;
-    clearMem();
-    saveMem();
-    readMem();
-    machineState = 0;
-    change_lock(0);
-    change_lock(1);
-    Serial.println("Finished Record");
+      machineState = 1;
+      change_lock(0);
+      change_lock(1);
+      Serial.println("Record");
+    }
+    
+    if (offTime > 5000 && machineState == 1 && buttonState == LOW){
+      count = 0;
+      count_read = 0;
+      clearMem();
+      saveMem();
+      readMem();
+      machineState = 0;
+      change_lock(0);
+      change_lock(1);
+      Serial.println("Finished Record");
+    }
   }
   
   if (offTime > 3000 && buttonState == LOW && machineState == 0){
@@ -163,6 +187,10 @@ void checkTimeouts(){
 }
 
 void calTime(){
+  /* calTime - Function
+  *    Calculates the amount of time that the user is holding 
+  *     the door handle
+  */
   offTime = 0;
   onTime = 0;
 
@@ -184,6 +212,9 @@ void calTime(){
 }
 
 void readMem(){
+  /* readMem - Function
+  *    Reads the current stored tap events into memory
+  */
   for (int i = 0; i< (sizeof(knock_array)/sizeof(int)); i++){
       knock_array[i] = 0;
       knock_array[i] = EEPROMReadInt(i);
@@ -192,12 +223,18 @@ void readMem(){
 }
 
 void saveMem(){
+  /* saveMem - Function
+  *    Saves the current time delays to EEPROM
+  */
   for (int i = 0; i< (sizeof(knock_array)/sizeof(int)); i++){
       EEPROMWriteInt(i, knock_array[i]);
   }
 }
 
 void clearMem(){
+ /* clearMem - Function
+  *    Sets all EEPROM memory back to -1
+  */
   for (int i = 0; i< (sizeof(knock_array)/sizeof(int)); i++){
       EEPROMWriteInt(i, -1);
   }
@@ -245,20 +282,20 @@ void change_lock(int state){
    *  @param state: The new state the lock should be changed to
    *  @type state: int
    */  
-  if(lock_state != state){
+  if(lockState != state){
     if(state == 0){
       door_servo.attach(SERVO_PIN);
       door_servo.write(170); 
       delay(1000); 
       door_servo.detach(); 
-      lock_state = 0;
+      lockState = 0;
       EEPROM.write(0, 0);
     }else{
       door_servo.attach(SERVO_PIN);
       door_servo.write(70); 
       delay(1000); 
       door_servo.detach();
-      lock_state = 1;
+      lockState = 1;
       EEPROM.write(0, 1);
     }
     door_reset = millis();
@@ -266,24 +303,35 @@ void change_lock(int state){
 }
 
 void reset(){
+  /* reset - Function
+  *    Resets the cap sense state. 
+  */
   offStartPress = millis();
   onStartPress = millis();
   machineState = 5;
-  counter_total = 0;
-  counter_highest = 0;
-  count_total = 0;
+  counterTotal = 0;
+  counterHighest = 0;
+  countTotal = 0;
   highest = 0;
 }
 
 void get_baseline(long value){
-  counter_total += value;
-  count_total += 1;
-  if(value > counter_highest){
-   counter_highest = value; 
+  /* get_baseline - Function
+  *    Creates a baseline for the current capacitive touch state
+  */
+  counterTotal += value;
+  countTotal += 1;
+  if(value > counterHighest){
+   counterHighest = value; 
   }
-  if(count_total == 100){
+  if(countTotal == 100){
     machineState = 0; 
-    counter_total = (counter_total/101);
+    counterTotal = (counterTotal/101);
+    Serial.print("Highest: ");
+    Serial.println(counterHighest);
+    
+    Serial.print("Total: ");
+    Serial.println(counterTotal);
   } 
 }
 
