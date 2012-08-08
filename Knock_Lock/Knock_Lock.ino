@@ -5,6 +5,8 @@ Sketch provides a knock based interface for unlocking doors. Detection is capaci
 and so is likely to need fine tuning for each door.
 
 Created: July 3, 2012 by Rob Hemsley (http://www.robhemsley.co.uk)
+
+Designed for use with the MIT Media Lab door opener by Valentin Heun.
 */
 
 //Library Imports
