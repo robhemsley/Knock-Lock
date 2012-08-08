@@ -2,7 +2,7 @@ Knock-Lock
 ==========
 
 Arduino sketch to allow users to open a door using a 'secret' knock/tap sequence. The project uses capacitive touch and so the door handle becomes the electrode which the user taps their hand against. Access control is provided in the same manner as the RFID-Lock Project (https://github.com/robhemsley/RFID-Door-Lock).  
-The code has been written for use with the MIT Media Lab door lock created by Valentin Heun (http://colorsaregood.com/door/)  
+The code can be used with the MIT Media Lab door lock created by Valentin Heun (http://colorsaregood.com/door/)  
 
 ## Installation ##
 
